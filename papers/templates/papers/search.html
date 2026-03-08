@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Search - SmartScholar</title>
+</head>
+<body>
+    <h1>SmartScholar</h1>
+    <p><a href="{% url 'home' %}">← Back to home</a></p>
+
+    <form action="{% url 'search' %}" method="get">
+        <input type="text" name="q" value="{{ query }}" placeholder="Enter search term..." required>
+        <button type="submit">Search</button>
+    </form>
+
+    {% if error %}
+        <p style="color: #c00;">{{ error }}</p>
+    {% endif %}
+
+    {% if papers %}
+        <h2>Results{% if query %} for "{{ query }}"{% endif %}</h2>
+        <ul>
+            {% for paper in papers %}
+            <li>
+                <strong>{{ paper.title }}</strong>
+                {% if paper.publication_year %}({{ paper.publication_year }}){% endif %}
+                {% if paper.first_author %}— {{ paper.first_author }}{% endif %}
+                — {{ paper.cited_by_count }} citations
+                {% if paper.openalex_id %}
+                    <br><a href="{{ paper.openalex_id }}" target="_blank" rel="noopener">{{ paper.openalex_id }}</a>
+                {% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+    {% elif query and not error %}
+        <p>No results found for "{{ query }}".</p>
+    {% endif %}
+</body>
+</html>

@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SmartScholar</title>
+</head>
+<body>
+    <h1>SmartScholar</h1>
+    <p>Search for academic papers using OpenAlex.</p>
+    <form action="{% url 'search' %}" method="get">
+        <input type="text" name="q" placeholder="Enter search term..." required>
+        <button type="submit">Search</button>
+    </form>
+</body>
+</html>
