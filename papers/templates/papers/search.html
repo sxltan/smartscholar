@@ -7,7 +7,7 @@
 </head>
 <body>
     <h1>SmartScholar</h1>
-    <p><a href="{% url 'home' %}">← Back to home</a></p>
+    <p><a href="{% url 'home' %}">← Back to home</a> | <a href="{% url 'saved' %}">Saved papers</a></p>
 
     <form action="{% url 'search' %}" method="get">
         <input type="text" name="q" value="{{ query }}" placeholder="Enter search term..." required>
@@ -29,6 +29,21 @@
                 — {{ paper.cited_by_count }} citations
                 {% if paper.openalex_id %}
                     <br><a href="{{ paper.openalex_id }}" target="_blank" rel="noopener">{{ paper.openalex_id }}</a>
+                {% endif %}
+                {% if paper.openalex_id %}
+                    {% if paper.openalex_id in saved_ids %}
+                        <span style="color: #080;">Saved</span>
+                    {% else %}
+                        <form action="{% url 'save_paper' %}?q={{ query|urlencode }}" method="post" style="display: inline;">
+                            {% csrf_token %}
+                            <input type="hidden" name="openalex_id" value="{{ paper.openalex_id }}">
+                            <input type="hidden" name="title" value="{{ paper.title }}">
+                            <input type="hidden" name="first_author" value="{{ paper.first_author|default:'' }}">
+                            <input type="hidden" name="publication_year" value="{{ paper.publication_year|default:'' }}">
+                            <input type="hidden" name="cited_by_count" value="{{ paper.cited_by_count }}">
+                            <button type="submit">Save</button>
+                        </form>
+                    {% endif %}
                 {% endif %}
             </li>
             {% endfor %}

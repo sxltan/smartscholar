@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Saved Papers - SmartScholar</title>
+</head>
+<body>
+    <h1>Saved Papers</h1>
+    <p><a href="{% url 'home' %}">← Back to home</a> | <a href="{% url 'search' %}">Search</a></p>
+
+    {% if papers %}
+        <ul>
+            {% for paper in papers %}
+            <li>
+                <strong>{{ paper.title }}</strong>
+                {% if paper.publication_year %}({{ paper.publication_year }}){% endif %}
+                {% if paper.first_author %}— {{ paper.first_author }}{% endif %}
+                — {{ paper.cited_by_count }} citations
+                {% if paper.openalex_id %}
+                    <br><a href="{{ paper.openalex_id }}" target="_blank" rel="noopener">{{ paper.openalex_id }}</a>
+                {% endif %}
+                <form action="{% url 'unsave_paper' %}" method="post" style="display: inline;">
+                    {% csrf_token %}
+                    <input type="hidden" name="openalex_id" value="{{ paper.openalex_id }}">
+                    <button type="submit">Unsave</button>
+                </form>
+            </li>
+            {% endfor %}
+        </ul>
+    {% else %}
+        <p>No saved papers yet. Search and save papers to see them here.</p>
+    {% endif %}
+</body>
+</html>

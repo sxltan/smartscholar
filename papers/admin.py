@@ -1,3 +1,6 @@
 from django.contrib import admin
 
-# Register your models here.
+from .models import SavedPaper, SearchHistory
+
+admin.site.register(SearchHistory)
+admin.site.register(SavedPaper)
