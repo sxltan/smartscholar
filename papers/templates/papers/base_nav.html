@@ -3,6 +3,7 @@
     <a href="{% url 'search' %}">Search</a> |
     <a href="{% url 'saved' %}">Saved papers</a> |
     {% if user.is_authenticated %}
+        <a href="{% url 'insights' %}">Insights</a> |
         {{ user.username }} |
         <a href="{% url 'logout' %}">Logout</a>
     {% else %}

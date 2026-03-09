@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Insights - SmartScholar</title>
+</head>
+<body>
+    <h1>Search Insights</h1>
+    {% include "papers/base_nav.html" %}
+
+    <h2>Overview</h2>
+    <p>Saved papers: {{ saved_count }}</p>
+    <p>Search history entries: {{ search_count }}</p>
+
+    <h2>Recent Searches</h2>
+    {% if recent_searches %}
+        <ul>
+            {% for s in recent_searches %}
+            <li>{{ s.query }} ({{ s.searched_at|date:"Y-m-d H:i" }})</li>
+            {% endfor %}
+        </ul>
+    {% else %}
+        <p>No searches yet.</p>
+    {% endif %}
+
+    <h2>Top Searched Queries</h2>
+    {% if top_queries %}
+        <ul>
+            {% for q in top_queries %}
+            <li>{{ q.query }} ({{ q.count }} times)</li>
+            {% endfor %}
+        </ul>
+    {% else %}
+        <p>No search data yet.</p>
+    {% endif %}
+
+    <h2>Top Cited Saved Papers</h2>
+    {% if top_cited %}
+        <ul>
+            {% for paper in top_cited %}
+            <li>
+                <strong>{{ paper.title }}</strong>
+                {% if paper.publication_year %}({{ paper.publication_year }}){% endif %}
+                — {{ paper.cited_by_count }} citations
+            </li>
+            {% endfor %}
+        </ul>
+    {% else %}
+        <p>No saved papers yet.</p>
+    {% endif %}
+
+    <h2>Saved Papers Statistics</h2>
+    {% if saved_count > 0 %}
+        <p>Average citations: {{ avg_citations|floatformat:1 }}</p>
+        {% if newest_year %}
+            <p>Newest publication year: {{ newest_year }}</p>
+        {% endif %}
+        {% if oldest_year %}
+            <p>Oldest publication year: {{ oldest_year }}</p>
+        {% endif %}
+    {% else %}
+        <p>No saved papers yet.</p>
+    {% endif %}
+</body>
+</html>

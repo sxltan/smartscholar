@@ -2,6 +2,7 @@ import requests
 from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import UserCreationForm
+from django.db.models import Avg, Count, Max, Min
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils.http import urlencode
@@ -158,6 +159,46 @@ def saved_view(request):
     """List all saved papers at /saved/."""
     papers = SavedPaper.objects.filter(user=request.user).order_by("-saved_at")
     return render(request, "papers/saved.html", {"papers": papers})
+
+
+@login_required
+def insights_view(request):
+    """Search insights dashboard for the current user."""
+    user_saved = SavedPaper.objects.filter(user=request.user)
+    user_searches = SearchHistory.objects.filter(user=request.user)
+
+    saved_count = user_saved.count()
+    search_count = user_searches.count()
+    recent_searches = user_searches.order_by("-searched_at")[:5]
+
+    top_queries = (
+        user_searches.values("query")
+        .annotate(count=Count("id"))
+        .order_by("-count")[:5]
+    )
+
+    top_cited = user_saved.order_by("-cited_by_count")[:5]
+
+    stats = user_saved.aggregate(
+        avg_citations=Avg("cited_by_count"),
+        newest_year=Max("publication_year"),
+        oldest_year=Min("publication_year"),
+    )
+
+    return render(
+        request,
+        "papers/insights.html",
+        {
+            "saved_count": saved_count,
+            "search_count": search_count,
+            "recent_searches": recent_searches,
+            "top_queries": top_queries,
+            "top_cited": top_cited,
+            "avg_citations": stats["avg_citations"],
+            "newest_year": stats["newest_year"],
+            "oldest_year": stats["oldest_year"],
+        },
+    )
 
 
 def register_view(request):
