@@ -7,7 +7,7 @@
 </head>
 <body>
     <h1>SmartScholar</h1>
-    <p><a href="{% url 'home' %}">← Back to home</a> | <a href="{% url 'saved' %}">Saved papers</a></p>
+    {% include "papers/base_nav.html" %}
 
     <form action="{% url 'search' %}" method="get">
         <input type="text" name="q" value="{{ query }}" placeholder="Enter search term..." required>
@@ -33,7 +33,7 @@
                 {% if paper.openalex_id %}
                     {% if paper.openalex_id in saved_ids %}
                         <span style="color: #080;">Saved</span>
-                    {% else %}
+                    {% elif user.is_authenticated %}
                         <form action="{% url 'save_paper' %}?q={{ query|urlencode }}" method="post" style="display: inline;">
                             {% csrf_token %}
                             <input type="hidden" name="openalex_id" value="{{ paper.openalex_id }}">
@@ -43,6 +43,8 @@
                             <input type="hidden" name="cited_by_count" value="{{ paper.cited_by_count }}">
                             <button type="submit">Save</button>
                         </form>
+                    {% else %}
+                        <a href="{% url 'login' %}?next={{ login_next|urlencode }}">Log in to save</a>
                     {% endif %}
                 {% endif %}
             </li>

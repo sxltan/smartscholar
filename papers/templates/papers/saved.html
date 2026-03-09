@@ -7,7 +7,7 @@
 </head>
 <body>
     <h1>Saved Papers</h1>
-    <p><a href="{% url 'home' %}">← Back to home</a> | <a href="{% url 'search' %}">Search</a></p>
+    {% include "papers/base_nav.html" %}
 
     {% if papers %}
         <ul>
