@@ -1,8 +1,11 @@
 import requests
+from functools import wraps
+
 from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import UserCreationForm
 from django.db.models import Avg, Count, Max, Min
+from django.http import JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils.http import urlencode
@@ -420,6 +423,91 @@ def insights_view(request):
             "oldest_year": stats["oldest_year"],
         },
     )
+
+
+def _api_login_required(view_func):
+    """Decorator that returns JSON 401 for unauthenticated API requests."""
+    @wraps(view_func)
+    def wrapper(request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return JsonResponse({"error": "Authentication required"}, status=401)
+        return view_func(request, *args, **kwargs)
+    return wrapper
+
+
+@_api_login_required
+def api_saved_papers_view(request):
+    """JSON list of the current user's saved papers."""
+    papers = SavedPaper.objects.filter(user=request.user).order_by("-saved_at")
+    data = [
+        {
+            "title": p.title,
+            "openalex_id": p.openalex_id,
+            "first_author": p.first_author,
+            "publication_year": p.publication_year,
+            "cited_by_count": p.cited_by_count,
+            "saved_at": p.saved_at.isoformat(),
+        }
+        for p in papers
+    ]
+    return JsonResponse(data, safe=False)
+
+
+@_api_login_required
+def api_search_history_view(request):
+    """JSON list of the current user's search history, most recent first."""
+    entries = SearchHistory.objects.filter(user=request.user).order_by("-searched_at")
+    data = [
+        {"query": e.query, "searched_at": e.searched_at.isoformat()}
+        for e in entries
+    ]
+    return JsonResponse(data, safe=False)
+
+
+@_api_login_required
+def api_insights_view(request):
+    """JSON object with insights for the current user."""
+    user_saved = SavedPaper.objects.filter(user=request.user)
+    user_searches = SearchHistory.objects.filter(user=request.user)
+
+    saved_count = user_saved.count()
+    search_count = user_searches.count()
+    recent_searches = [
+        {"query": e.query, "searched_at": e.searched_at.isoformat()}
+        for e in user_searches.order_by("-searched_at")[:5]
+    ]
+    top_queries = [
+        {"query": q["query"], "count": q["count"]}
+        for q in user_searches.values("query")
+        .annotate(count=Count("id"))
+        .order_by("-count")[:5]
+    ]
+    top_cited = [
+        {
+            "title": p.title,
+            "openalex_id": p.openalex_id,
+            "publication_year": p.publication_year,
+            "cited_by_count": p.cited_by_count,
+        }
+        for p in user_saved.order_by("-cited_by_count")[:5]
+    ]
+    stats = user_saved.aggregate(
+        avg_citations=Avg("cited_by_count"),
+        newest_year=Max("publication_year"),
+        oldest_year=Min("publication_year"),
+    )
+
+    data = {
+        "saved_count": saved_count,
+        "search_count": search_count,
+        "recent_searches": recent_searches,
+        "top_queries": top_queries,
+        "top_cited": top_cited,
+        "avg_citations": float(stats["avg_citations"]) if stats["avg_citations"] is not None else None,
+        "newest_year": stats["newest_year"],
+        "oldest_year": stats["oldest_year"],
+    }
+    return JsonResponse(data)
 
 
 def register_view(request):
