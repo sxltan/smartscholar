@@ -11,6 +11,27 @@
 
     <form action="{% url 'search' %}" method="get">
         <input type="text" name="q" value="{{ query }}" placeholder="Enter search term..." required>
+        <label>Sort by:
+            <select name="sort">
+                <option value="relevance" {% if sort == "relevance" %}selected{% endif %}>Relevance</option>
+                <option value="most_cited" {% if sort == "most_cited" %}selected{% endif %}>Most cited</option>
+                <option value="newest" {% if sort == "newest" %}selected{% endif %}>Newest</option>
+            </select>
+        </label>
+        <label>From year:
+            <select name="from_year">
+                {% for value, label in year_choices %}
+                <option value="{{ value }}" {% if from_year == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>To year:
+            <select name="to_year">
+                {% for value, label in year_choices %}
+                <option value="{{ value }}" {% if to_year == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </label>
         <button type="submit">Search</button>
     </form>
 
@@ -34,7 +55,7 @@
                     {% if paper.openalex_id in saved_ids %}
                         <span style="color: #080;">Saved</span>
                     {% elif user.is_authenticated %}
-                        <form action="{% url 'save_paper' %}?q={{ query|urlencode }}" method="post" style="display: inline;">
+                        <form action="{% url 'save_paper' %}?{{ save_redirect_params }}" method="post" style="display: inline;">
                             {% csrf_token %}
                             <input type="hidden" name="openalex_id" value="{{ paper.openalex_id }}">
                             <input type="hidden" name="title" value="{{ paper.title }}">
@@ -44,7 +65,7 @@
                             <button type="submit">Save</button>
                         </form>
                     {% else %}
-                        <a href="{% url 'login' %}?next={{ login_next|urlencode }}">Log in to save</a>
+                        <a href="{{ login_url }}">Log in to save</a>
                     {% endif %}
                 {% endif %}
             </li>

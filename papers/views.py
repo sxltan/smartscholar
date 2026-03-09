@@ -6,10 +6,13 @@ from django.db.models import Avg, Count, Max, Min
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils.http import urlencode
+from django.utils import timezone
 
 from .models import SavedPaper, SearchHistory
 
 OPENALEX_WORKS_URL = "https://api.openalex.org/works"
+
+YEAR_CHOICES = [("", "Any")] + [(str(y), str(y)) for y in range(timezone.now().year, 1899, -1)]
 
 
 def _extract_paper(work):
@@ -38,8 +41,11 @@ def home_view(request):
 
 
 def search_view(request):
-    """Search papers at /search/ using query parameter q."""
+    """Search papers at /search/ with optional sort and year filters."""
     query = request.GET.get("q", "").strip()
+    sort = request.GET.get("sort", "relevance").strip() or "relevance"
+    from_year = request.GET.get("from_year", "").strip()
+    to_year = request.GET.get("to_year", "").strip()
     papers = []
     error = None
 
@@ -52,23 +58,80 @@ def search_view(request):
     else:
         saved_ids = set()
 
-    login_next = reverse("search")
-    if query:
-        login_next += "?" + urlencode({"q": query})
+    def search_params():
+        p = {"q": query, "sort": sort, "from_year": from_year, "to_year": to_year}
+        return {k: v for k, v in p.items() if v}
+
+    next_url = reverse("search")
+    if search_params():
+        next_url += "?" + urlencode(search_params())
+    login_url = reverse("login") + "?" + urlencode({"next": next_url})
 
     if not query:
         return render(
             request,
             "papers/search.html",
-            {"papers": [], "query": "", "saved_ids": saved_ids, "error": None, "login_next": login_next},
+            {
+                "papers": [],
+                "query": "",
+                "sort": sort,
+                "from_year": from_year,
+                "to_year": to_year,
+                "year_choices": YEAR_CHOICES,
+                "saved_ids": saved_ids,
+                "error": None,
+                "login_url": login_url,
+            },
         )
 
-    try:
-        response = requests.get(
-            OPENALEX_WORKS_URL,
-            params={"search": query, "per_page": 10},
-            timeout=10,
+    from_year_int = None
+    to_year_int = None
+    if from_year:
+        try:
+            from_year_int = int(from_year)
+        except ValueError:
+            error = "Please enter a valid year for 'From year'."
+    if to_year:
+        try:
+            to_year_int = int(to_year)
+        except ValueError:
+            error = "Please enter a valid year for 'To year'."
+    if from_year_int is not None and to_year_int is not None and from_year_int > to_year_int:
+        error = "'From year' cannot be greater than 'To year'."
+
+    if error:
+        return render(
+            request,
+            "papers/search.html",
+            {
+                "papers": [],
+                "query": query,
+                "sort": sort,
+                "from_year": from_year,
+                "to_year": to_year,
+                "year_choices": YEAR_CHOICES,
+                "saved_ids": saved_ids,
+                "error": error,
+                "login_url": login_url,
+            },
         )
+
+    api_params = {"search": query, "per_page": 10}
+    if sort == "most_cited":
+        api_params["sort"] = "cited_by_count:desc"
+    elif sort == "newest":
+        api_params["sort"] = "publication_year:desc"
+
+    filters = []
+    if from_year_int is not None:
+        filters.append(f"from_publication_date:{from_year_int}-01-01")
+    if to_year_int is not None:
+        filters.append(f"to_publication_date:{to_year_int}-12-31")
+    if filters:
+        api_params["filter"] = ",".join(filters)
+
+    try:
+        response = requests.get(OPENALEX_WORKS_URL, params=api_params, timeout=10)
         response.raise_for_status()
         data = response.json()
     except requests.RequestException:
@@ -78,9 +141,13 @@ def search_view(request):
             {
                 "papers": [],
                 "query": query,
+                "sort": sort,
+                "from_year": from_year,
+                "to_year": to_year,
+                "year_choices": YEAR_CHOICES,
                 "saved_ids": saved_ids,
                 "error": "Unable to reach the search service. Please try again later.",
-                "login_next": login_next,
+                "login_url": login_url,
             },
         )
 
@@ -90,10 +157,30 @@ def search_view(request):
     if request.user.is_authenticated:
         SearchHistory.objects.create(user=request.user, query=query)
 
+    save_params = {"q": query}
+    if sort:
+        save_params["sort"] = sort
+    if from_year:
+        save_params["from_year"] = from_year
+    if to_year:
+        save_params["to_year"] = to_year
+    save_redirect_params = urlencode(save_params)
+
     return render(
         request,
         "papers/search.html",
-        {"papers": papers, "query": query, "saved_ids": saved_ids, "error": error, "login_next": login_next},
+        {
+            "papers": papers,
+            "query": query,
+            "sort": sort,
+            "from_year": from_year,
+            "to_year": to_year,
+            "year_choices": YEAR_CHOICES,
+            "saved_ids": saved_ids,
+            "error": error,
+            "login_url": login_url,
+            "save_redirect_params": save_redirect_params,
+        },
     )
 
 
@@ -115,9 +202,21 @@ def save_paper_view(request):
         return redirect("search")
 
     query = request.GET.get("q", "")
-    redirect_url = reverse("search")
+    sort = request.GET.get("sort", "")
+    from_year = request.GET.get("from_year", "")
+    to_year = request.GET.get("to_year", "")
+    params = {}
     if query:
-        redirect_url += "?" + urlencode({"q": query})
+        params["q"] = query
+    if sort:
+        params["sort"] = sort
+    if from_year:
+        params["from_year"] = from_year
+    if to_year:
+        params["to_year"] = to_year
+    redirect_url = reverse("search")
+    if params:
+        redirect_url += "?" + urlencode(params)
 
     py = request.POST.get("publication_year", "").strip()
     try:

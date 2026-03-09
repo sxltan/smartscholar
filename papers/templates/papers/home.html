@@ -8,10 +8,7 @@
 <body>
     <h1>SmartScholar</h1>
     {% include "papers/base_nav.html" %}
-    <p>Search for academic papers using OpenAlex.</p>
-    <form action="{% url 'search' %}" method="get">
-        <input type="text" name="q" placeholder="Enter search term..." required>
-        <button type="submit">Search</button>
-    </form>
+
+    <p>Search for academic papers, save your favourites, and explore your search insights [powered by OpenAlex].</p>
 </body>
 </html>
