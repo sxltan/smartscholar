@@ -13,14 +13,18 @@
         <ul>
             {% for paper in papers %}
             <li>
+                {% if paper.openalex_short_id %}
+                <strong><a href="{% url 'paper_detail' openalex_id=paper.openalex_short_id %}">{{ paper.title }}</a></strong>
+                {% else %}
                 <strong>{{ paper.title }}</strong>
+                {% endif %}
                 {% if paper.publication_year %}({{ paper.publication_year }}){% endif %}
                 {% if paper.first_author %}— {{ paper.first_author }}{% endif %}
                 — {{ paper.cited_by_count }} citations
                 {% if paper.openalex_id %}
                     <br><a href="{{ paper.openalex_id }}" target="_blank" rel="noopener">{{ paper.openalex_id }}</a>
                 {% endif %}
-                <form action="{% url 'unsave_paper' %}" method="post" style="display: inline;">
+                <form action="{% url 'unsave_paper' %}?next={% url 'saved' %}" method="post" style="display: inline;">
                     {% csrf_token %}
                     <input type="hidden" name="openalex_id" value="{{ paper.openalex_id }}">
                     <button type="submit">Unsave</button>

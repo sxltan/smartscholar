@@ -44,7 +44,11 @@
         <ul>
             {% for paper in papers %}
             <li>
+                {% if paper.openalex_short_id %}
+                <strong><a href="{% url 'paper_detail' openalex_id=paper.openalex_short_id %}">{{ paper.title }}</a></strong>
+                {% else %}
                 <strong>{{ paper.title }}</strong>
+                {% endif %}
                 {% if paper.publication_year %}({{ paper.publication_year }}){% endif %}
                 {% if paper.first_author %}— {{ paper.first_author }}{% endif %}
                 — {{ paper.cited_by_count }} citations

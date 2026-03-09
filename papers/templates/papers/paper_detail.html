@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% if paper %}{{ paper.title }}{% else %}Paper{% endif %} - SmartScholar</title>
+</head>
+<body>
+    <h1>SmartScholar</h1>
+    {% include "papers/base_nav.html" %}
+
+    {% if error %}
+        <p style="color: #c00;">{{ error }}</p>
+        <p><a href="{% url 'search' %}">Back to search</a></p>
+    {% elif paper %}
+        <h2>{{ paper.title }}</h2>
+
+        {% if paper.publication_year %}<p>Publication year: {{ paper.publication_year }}</p>{% endif %}
+        <p>Citations: {{ paper.cited_by_count }}</p>
+
+        {% if paper.authors %}
+            <p>Authors: {{ paper.authors|join:", " }}</p>
+        {% endif %}
+
+        {% if paper.abstract %}
+            <p><strong>Abstract:</strong> {{ paper.abstract }}</p>
+        {% endif %}
+
+        {% if paper.openalex_id %}
+            <p><a href="{{ paper.openalex_id }}" target="_blank" rel="noopener">View on OpenAlex</a></p>
+        {% endif %}
+
+        {% if paper.openalex_id %}
+            {% if is_saved %}
+                <p>
+                    <span style="color: #080;">Saved</span>
+                    <form action="{% url 'unsave_paper' %}?{{ unsave_redirect_params }}" method="post" style="display: inline;">
+                        {% csrf_token %}
+                        <input type="hidden" name="openalex_id" value="{{ paper.openalex_id }}">
+                        <button type="submit">Unsave</button>
+                    </form>
+                </p>
+            {% elif user.is_authenticated %}
+                <form action="{% url 'save_paper' %}?{{ save_redirect_params }}" method="post" style="display: inline;">
+                    {% csrf_token %}
+                    <input type="hidden" name="openalex_id" value="{{ paper.openalex_id }}">
+                    <input type="hidden" name="title" value="{{ paper.title }}">
+                    <input type="hidden" name="first_author" value="{% if paper.authors %}{{ paper.authors.0 }}{% endif %}">
+                    <input type="hidden" name="publication_year" value="{{ paper.publication_year|default:'' }}">
+                    <input type="hidden" name="cited_by_count" value="{{ paper.cited_by_count }}">
+                    <button type="submit">Save</button>
+                </form>
+            {% else %}
+                <p><a href="{{ login_url }}">Log in to save</a></p>
+            {% endif %}
+        {% endif %}
+
+        {% if related %}
+            <h3>Related papers</h3>
+            <ul>
+                {% for r in related %}
+                <li>
+                    <a href="{% url 'paper_detail' openalex_id=r.openalex_short_id %}">{{ r.title }}</a>
+                    {% if r.publication_year %}({{ r.publication_year }}){% endif %}
+                    — {{ r.cited_by_count }} citations
+                </li>
+                {% endfor %}
+            </ul>
+        {% endif %}
+    {% endif %}
+</body>
+</html>

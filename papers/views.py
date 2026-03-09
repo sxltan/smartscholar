@@ -15,6 +15,13 @@ OPENALEX_WORKS_URL = "https://api.openalex.org/works"
 YEAR_CHOICES = [("", "Any")] + [(str(y), str(y)) for y in range(timezone.now().year, 1899, -1)]
 
 
+def _openalex_short_id(url):
+    """Extract short ID (e.g. W2101234009) from OpenAlex URL."""
+    if not url:
+        return ""
+    return url.rstrip("/").split("/")[-1]
+
+
 def _extract_paper(work):
     """Extract a clean subset of fields from an OpenAlex work object."""
     first_author = None
@@ -26,13 +33,42 @@ def _extract_paper(work):
                 first_author = author_obj.get("display_name")
             break
 
-    return {
+    openalex_id = work.get("id")
+    result = {
         "title": work.get("title") or work.get("display_name") or "Unknown",
         "publication_year": work.get("publication_year"),
         "cited_by_count": work.get("cited_by_count", 0),
         "first_author": first_author,
-        "openalex_id": work.get("id"),
+        "openalex_id": openalex_id,
     }
+    if openalex_id:
+        result["openalex_short_id"] = _openalex_short_id(openalex_id)
+    return result
+
+
+def _extract_authors(work):
+    """Extract list of author display names from an OpenAlex work."""
+    authorships = work.get("authorships") or []
+    names = []
+    for a in authorships:
+        author_obj = a.get("author")
+        if author_obj:
+            name = author_obj.get("display_name")
+            if name:
+                names.append(name)
+    return names
+
+
+def _reconstruct_abstract(abstract_inverted_index):
+    """Reconstruct abstract text from OpenAlex inverted index format."""
+    if not abstract_inverted_index:
+        return None
+    parts = []
+    for word, positions in abstract_inverted_index.items():
+        for pos in positions:
+            parts.append((pos, word))
+    parts.sort(key=lambda x: x[0])
+    return " ".join(p[1] for p in parts)
 
 
 def home_view(request):
@@ -184,16 +220,93 @@ def search_view(request):
     )
 
 
+def paper_detail_view(request, openalex_id):
+    """Paper detail page with related papers."""
+    if not openalex_id:
+        return redirect("search")
+
+    if openalex_id.startswith("http"):
+        short_id = _openalex_short_id(openalex_id)
+        work_url = f"https://api.openalex.org/works/{short_id}"
+    else:
+        work_url = f"https://api.openalex.org/works/{openalex_id}"
+
+    try:
+        response = requests.get(work_url, timeout=10)
+        response.raise_for_status()
+        work = response.json()
+    except requests.RequestException:
+        return render(
+            request,
+            "papers/paper_detail.html",
+            {"error": "Unable to load paper details. Please try again later."},
+        )
+
+    openalex_id_full = work.get("id")
+    title = work.get("title") or work.get("display_name") or "Unknown"
+    publication_year = work.get("publication_year")
+    cited_by_count = work.get("cited_by_count", 0)
+    authors = _extract_authors(work)
+    abstract = _reconstruct_abstract(work.get("abstract_inverted_index"))
+
+    related = []
+    ref_urls = work.get("referenced_works") or work.get("related_works") or []
+    for ref_url in ref_urls[:5]:
+        try:
+            ref_id = _openalex_short_id(ref_url)
+            ref_api_url = f"https://api.openalex.org/works/{ref_id}"
+            ref_response = requests.get(ref_api_url, timeout=5)
+            ref_response.raise_for_status()
+            ref_work = ref_response.json()
+            related.append(_extract_paper(ref_work))
+        except requests.RequestException:
+            continue
+
+    is_saved = False
+    if request.user.is_authenticated and openalex_id_full:
+        is_saved = SavedPaper.objects.filter(
+            user=request.user, openalex_id=openalex_id_full
+        ).exists()
+
+    short_id = _openalex_short_id(openalex_id_full) if openalex_id_full else ""
+    paper_detail_url = reverse("paper_detail", kwargs={"openalex_id": short_id})
+    save_redirect_params = urlencode({"next": paper_detail_url})
+    login_url = reverse("login") + "?" + urlencode({"next": request.path})
+    unsave_redirect_params = urlencode({"next": paper_detail_url})
+
+    return render(
+        request,
+        "papers/paper_detail.html",
+        {
+            "paper": {
+                "title": title,
+                "publication_year": publication_year,
+                "cited_by_count": cited_by_count,
+                "authors": authors,
+                "openalex_id": openalex_id_full,
+                "abstract": abstract,
+            },
+            "related": related,
+            "is_saved": is_saved,
+            "save_redirect_params": save_redirect_params,
+            "login_url": login_url,
+            "unsave_redirect_params": unsave_redirect_params,
+        },
+    )
+
+
 def save_paper_view(request):
-    """Save a paper from search results. Redirects back to search."""
+    """Save a paper from search results or detail page. Redirects back appropriately."""
     if request.method != "POST":
         return redirect("search")
 
     if not request.user.is_authenticated:
-        query = request.GET.get("q", "")
-        next_url = reverse("search")
-        if query:
-            next_url += "?" + urlencode({"q": query})
+        next_param = request.GET.get("next", "")
+        if next_param and next_param.startswith("/"):
+            next_url = next_param
+        else:
+            params = {k: v for k, v in request.GET.items() if k != "next" and v}
+            next_url = reverse("search") + ("?" + urlencode(params) if params else "")
         login_url = reverse("login") + "?" + urlencode({"next": next_url})
         return redirect(login_url)
 
@@ -201,22 +314,26 @@ def save_paper_view(request):
     if not openalex_id:
         return redirect("search")
 
-    query = request.GET.get("q", "")
-    sort = request.GET.get("sort", "")
-    from_year = request.GET.get("from_year", "")
-    to_year = request.GET.get("to_year", "")
-    params = {}
-    if query:
-        params["q"] = query
-    if sort:
-        params["sort"] = sort
-    if from_year:
-        params["from_year"] = from_year
-    if to_year:
-        params["to_year"] = to_year
-    redirect_url = reverse("search")
-    if params:
-        redirect_url += "?" + urlencode(params)
+    next_param = request.GET.get("next", "")
+    if next_param and next_param.startswith("/"):
+        redirect_url = next_param
+    else:
+        query = request.GET.get("q", "")
+        sort = request.GET.get("sort", "")
+        from_year = request.GET.get("from_year", "")
+        to_year = request.GET.get("to_year", "")
+        params = {}
+        if query:
+            params["q"] = query
+        if sort:
+            params["sort"] = sort
+        if from_year:
+            params["from_year"] = from_year
+        if to_year:
+            params["to_year"] = to_year
+        redirect_url = reverse("search")
+        if params:
+            redirect_url += "?" + urlencode(params)
 
     py = request.POST.get("publication_year", "").strip()
     try:
@@ -239,7 +356,7 @@ def save_paper_view(request):
 
 
 def unsave_paper_view(request):
-    """Remove a saved paper. Redirects back to saved page."""
+    """Remove a saved paper. Redirects to next param if safe, otherwise to saved page."""
     if request.method != "POST":
         return redirect("saved")
 
@@ -250,13 +367,18 @@ def unsave_paper_view(request):
     if openalex_id:
         SavedPaper.objects.filter(user=request.user, openalex_id=openalex_id).delete()
 
+    next_param = request.GET.get("next", "").strip()
+    if next_param and next_param.startswith("/") and not next_param.startswith("//"):
+        return redirect(next_param)
     return redirect("saved")
 
 
 @login_required
 def saved_view(request):
     """List all saved papers at /saved/."""
-    papers = SavedPaper.objects.filter(user=request.user).order_by("-saved_at")
+    papers = list(SavedPaper.objects.filter(user=request.user).order_by("-saved_at"))
+    for p in papers:
+        p.openalex_short_id = _openalex_short_id(p.openalex_id)
     return render(request, "papers/saved.html", {"papers": papers})
 
 
