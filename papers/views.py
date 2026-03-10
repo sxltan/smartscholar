@@ -74,6 +74,55 @@ def _reconstruct_abstract(abstract_inverted_index):
     return " ".join(p[1] for p in parts)
 
 
+def _validate_search_params(query, from_year, to_year):
+    """Validate search params. Returns (error, from_year_int, to_year_int)."""
+    if not query:
+        return ("Query is required.", None, None)
+    from_year_int = None
+    to_year_int = None
+    if from_year:
+        try:
+            from_year_int = int(from_year)
+        except ValueError:
+            return ("Invalid from_year.", None, None)
+    if to_year:
+        try:
+            to_year_int = int(to_year)
+        except ValueError:
+            return ("Invalid to_year.", None, None)
+    if from_year_int is not None and to_year_int is not None and from_year_int > to_year_int:
+        return ("from_year cannot be greater than to_year.", None, None)
+    return (None, from_year_int, to_year_int)
+
+
+def _fetch_openalex_search(query, sort, from_year_int, to_year_int, per_page=10):
+    """Fetch search results from OpenAlex. Returns (papers, error)."""
+    api_params = {"search": query, "per_page": per_page}
+    if sort == "most_cited":
+        api_params["sort"] = "cited_by_count:desc"
+    elif sort == "newest":
+        api_params["sort"] = "publication_year:desc"
+
+    filters = []
+    if from_year_int is not None:
+        filters.append(f"from_publication_date:{from_year_int}-01-01")
+    if to_year_int is not None:
+        filters.append(f"to_publication_date:{to_year_int}-12-31")
+    if filters:
+        api_params["filter"] = ",".join(filters)
+
+    try:
+        response = requests.get(OPENALEX_WORKS_URL, params=api_params, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+    except requests.RequestException:
+        return ([], "Unable to reach the search service.")
+
+    results = data.get("results") or []
+    papers = [_extract_paper(w) for w in results]
+    return (papers, None)
+
+
 def home_view(request):
     """Homepage at /."""
     return render(request, "papers/home.html")
@@ -123,21 +172,7 @@ def search_view(request):
             },
         )
 
-    from_year_int = None
-    to_year_int = None
-    if from_year:
-        try:
-            from_year_int = int(from_year)
-        except ValueError:
-            error = "Please enter a valid year for 'From year'."
-    if to_year:
-        try:
-            to_year_int = int(to_year)
-        except ValueError:
-            error = "Please enter a valid year for 'To year'."
-    if from_year_int is not None and to_year_int is not None and from_year_int > to_year_int:
-        error = "'From year' cannot be greater than 'To year'."
-
+    error, from_year_int, to_year_int = _validate_search_params(query, from_year, to_year)
     if error:
         return render(
             request,
@@ -155,25 +190,8 @@ def search_view(request):
             },
         )
 
-    api_params = {"search": query, "per_page": 10}
-    if sort == "most_cited":
-        api_params["sort"] = "cited_by_count:desc"
-    elif sort == "newest":
-        api_params["sort"] = "publication_year:desc"
-
-    filters = []
-    if from_year_int is not None:
-        filters.append(f"from_publication_date:{from_year_int}-01-01")
-    if to_year_int is not None:
-        filters.append(f"to_publication_date:{to_year_int}-12-31")
-    if filters:
-        api_params["filter"] = ",".join(filters)
-
-    try:
-        response = requests.get(OPENALEX_WORKS_URL, params=api_params, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-    except requests.RequestException:
+    papers, fetch_error = _fetch_openalex_search(query, sort, from_year_int, to_year_int)
+    if fetch_error:
         return render(
             request,
             "papers/search.html",
@@ -189,9 +207,6 @@ def search_view(request):
                 "login_url": login_url,
             },
         )
-
-    results = data.get("results") or []
-    papers = [_extract_paper(w) for w in results]
 
     if request.user.is_authenticated:
         SearchHistory.objects.create(user=request.user, query=query)
@@ -223,11 +238,10 @@ def search_view(request):
     )
 
 
-def paper_detail_view(request, openalex_id):
-    """Paper detail page with related papers."""
+def _fetch_paper_detail(openalex_id):
+    """Fetch paper and related from OpenAlex. Returns (paper_dict, related_list, error)."""
     if not openalex_id:
-        return redirect("search")
-
+        return (None, None, "Paper ID is required.")
     if openalex_id.startswith("http"):
         short_id = _openalex_short_id(openalex_id)
         work_url = f"https://api.openalex.org/works/{short_id}"
@@ -239,11 +253,7 @@ def paper_detail_view(request, openalex_id):
         response.raise_for_status()
         work = response.json()
     except requests.RequestException:
-        return render(
-            request,
-            "papers/paper_detail.html",
-            {"error": "Unable to load paper details. Please try again later."},
-        )
+        return (None, None, "Unable to load paper details. Please try again later.")
 
     openalex_id_full = work.get("id")
     title = work.get("title") or work.get("display_name") or "Unknown"
@@ -251,6 +261,15 @@ def paper_detail_view(request, openalex_id):
     cited_by_count = work.get("cited_by_count", 0)
     authors = _extract_authors(work)
     abstract = _reconstruct_abstract(work.get("abstract_inverted_index"))
+
+    paper = {
+        "title": title,
+        "publication_year": publication_year,
+        "cited_by_count": cited_by_count,
+        "authors": authors,
+        "openalex_id": openalex_id_full,
+        "abstract": abstract,
+    }
 
     related = []
     ref_urls = work.get("referenced_works") or work.get("related_works") or []
@@ -265,6 +284,20 @@ def paper_detail_view(request, openalex_id):
         except requests.RequestException:
             continue
 
+    return (paper, related, None)
+
+
+def paper_detail_view(request, openalex_id):
+    """Paper detail page with related papers."""
+    paper, related, error = _fetch_paper_detail(openalex_id)
+    if error:
+        return render(
+            request,
+            "papers/paper_detail.html",
+            {"error": error},
+        )
+
+    openalex_id_full = paper["openalex_id"]
     is_saved = False
     if request.user.is_authenticated and openalex_id_full:
         is_saved = SavedPaper.objects.filter(
@@ -281,14 +314,7 @@ def paper_detail_view(request, openalex_id):
         request,
         "papers/paper_detail.html",
         {
-            "paper": {
-                "title": title,
-                "publication_year": publication_year,
-                "cited_by_count": cited_by_count,
-                "authors": authors,
-                "openalex_id": openalex_id_full,
-                "abstract": abstract,
-            },
+            "paper": paper,
             "related": related,
             "is_saved": is_saved,
             "save_redirect_params": save_redirect_params,
@@ -506,6 +532,55 @@ def api_insights_view(request):
         "avg_citations": float(stats["avg_citations"]) if stats["avg_citations"] is not None else None,
         "newest_year": stats["newest_year"],
         "oldest_year": stats["oldest_year"],
+    }
+    return JsonResponse(data)
+
+
+def api_search_view(request):
+    """JSON search results from OpenAlex."""
+    query = request.GET.get("q", "").strip()
+    sort = request.GET.get("sort", "relevance").strip() or "relevance"
+    from_year = request.GET.get("from_year", "").strip()
+    to_year = request.GET.get("to_year", "").strip()
+
+    error, from_year_int, to_year_int = _validate_search_params(query, from_year, to_year)
+    if error:
+        return JsonResponse({"error": error}, status=400)
+
+    papers, fetch_error = _fetch_openalex_search(query, sort, from_year_int, to_year_int)
+    if fetch_error:
+        return JsonResponse({"error": fetch_error}, status=503)
+
+    if request.user.is_authenticated:
+        SearchHistory.objects.create(user=request.user, query=query)
+
+    data = {
+        "query": query,
+        "sort": sort,
+        "from_year": from_year or None,
+        "to_year": to_year or None,
+        "count": len(papers),
+        "results": papers,
+    }
+    return JsonResponse(data)
+
+
+def api_paper_view(request, openalex_id):
+    """JSON detail for a single paper from OpenAlex."""
+    paper, related, error = _fetch_paper_detail(openalex_id)
+    if error:
+        error_lower = error.lower()
+        if "required" in error_lower:
+            status = 400
+        elif "unable to load paper details" in error_lower:
+            status = 503
+        else:
+            status = 404
+        return JsonResponse({"error": error}, status=status)
+
+    data = {
+        **paper,
+        "related": related,
     }
     return JsonResponse(data)
 
