@@ -60,7 +60,11 @@
             <ul>
                 {% for r in related %}
                 <li>
-                    <a href="{% url 'paper_detail' openalex_id=r.openalex_short_id %}">{{ r.title }}</a>
+                    {% if r.openalex_short_id %}
+                        <a href="{% url 'paper_detail' openalex_id=r.openalex_short_id %}">{{ r.title }}</a>
+                    {% else %}
+                        {{ r.title }}
+                    {% endif %}
                     {% if r.publication_year %}({{ r.publication_year }}){% endif %}
                     — {{ r.cited_by_count }} citations
                 </li>

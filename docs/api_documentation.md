@@ -171,8 +171,8 @@ GET /api/paper/W2101234567/
 | Status | Condition | Response |
 |--------|-----------|----------|
 | 400 | Missing or invalid paper ID | `{"error": "Paper ID is required."}` |
-| 404 | Paper not found or unresolved lookup | `{"error": "<error message>"}` |
-| 503 | OpenAlex API unavailable | `{"error": "Unable to load paper details. Please try again later."}` |
+| 404 | Paper not found | `{"error": "<error message>"}` |
+| 503 | Unable to retrieve paper details (OpenAlex unavailable or lookup failure) | `{"error": "Unable to load paper details. Please try again later."}` |
 
 ---
 
