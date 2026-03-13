@@ -25,8 +25,8 @@ def _openalex_short_id(url):
     return url.rstrip("/").split("/")[-1]
 
 
+# Pull out the main fields we want from an OpenAlex result
 def _extract_paper(work):
-    """Extract a clean subset of fields from an OpenAlex work object."""
     first_author = None
     authorships = work.get("authorships") or []
     for a in authorships:
@@ -62,8 +62,8 @@ def _extract_authors(work):
     return names
 
 
+# Rebuild the abstract text from OpenAlex's inverted index format
 def _reconstruct_abstract(abstract_inverted_index):
-    """Reconstruct abstract text from OpenAlex inverted index format."""
     if not abstract_inverted_index:
         return None
     parts = []
@@ -74,8 +74,8 @@ def _reconstruct_abstract(abstract_inverted_index):
     return " ".join(p[1] for p in parts)
 
 
+# Check query and year filters before calling the API
 def _validate_search_params(query, from_year, to_year):
-    """Validate search params. Returns (error, from_year_int, to_year_int)."""
     if not query:
         return ("Query is required.", None, None)
     from_year_int = None
@@ -95,8 +95,8 @@ def _validate_search_params(query, from_year, to_year):
     return (None, from_year_int, to_year_int)
 
 
+# Fetch search results from OpenAlex (returns papers or an error message)
 def _fetch_openalex_search(query, sort, from_year_int, to_year_int, per_page=10):
-    """Fetch search results from OpenAlex. Returns (papers, error)."""
     api_params = {"search": query, "per_page": per_page}
     if sort == "most_cited":
         api_params["sort"] = "cited_by_count:desc"
@@ -128,8 +128,8 @@ def home_view(request):
     return render(request, "papers/home.html")
 
 
+# Search page with filters - calls OpenAlex and shows save buttons for logged-in users
 def search_view(request):
-    """Search papers at /search/ with optional sort and year filters."""
     query = request.GET.get("q", "").strip()
     sort = request.GET.get("sort", "relevance").strip() or "relevance"
     from_year = request.GET.get("from_year", "").strip()
@@ -137,6 +137,7 @@ def search_view(request):
     papers = []
     error = None
 
+    # Which papers has this user already saved (for the "Saved" badge)
     if request.user.is_authenticated:
         saved_ids = set(
             SavedPaper.objects.filter(user=request.user).values_list(
@@ -238,8 +239,8 @@ def search_view(request):
     )
 
 
+# Get paper details and up to 5 related works from OpenAlex
 def _fetch_paper_detail(openalex_id):
-    """Fetch paper and related from OpenAlex. Returns (paper_dict, related_list, error)."""
     if not openalex_id:
         return (None, None, "Paper ID is required.")
     if openalex_id.startswith("http"):
@@ -298,6 +299,7 @@ def paper_detail_view(request, openalex_id):
         )
 
     openalex_id_full = paper["openalex_id"]
+    # Check if they've already saved this paper (for save/unsave button)
     is_saved = False
     if request.user.is_authenticated and openalex_id_full:
         is_saved = SavedPaper.objects.filter(
@@ -330,8 +332,9 @@ def save_paper_view(request):
         return redirect("search")
 
     if not request.user.is_authenticated:
+        # Send to login but remember where they were going
         next_param = request.GET.get("next", "")
-        if next_param and next_param.startswith("/"):
+        if next_param and next_param.startswith("/") and not next_param.startswith("//"):
             next_url = next_param
         else:
             params = {k: v for k, v in request.GET.items() if k != "next" and v}
@@ -343,8 +346,9 @@ def save_paper_view(request):
     if not openalex_id:
         return redirect("search")
 
+    # Redirect back to where they came from, or to search with filters
     next_param = request.GET.get("next", "")
-    if next_param and next_param.startswith("/"):
+    if next_param and next_param.startswith("/") and not next_param.startswith("//"):
         redirect_url = next_param
     else:
         query = request.GET.get("q", "")
@@ -370,6 +374,11 @@ def save_paper_view(request):
     except ValueError:
         publication_year = None
 
+    try:
+        cited_by_count = int(request.POST.get("cited_by_count") or 0)
+    except (ValueError, TypeError):
+        cited_by_count = 0
+
     SavedPaper.objects.get_or_create(
         user=request.user,
         openalex_id=openalex_id,
@@ -377,7 +386,7 @@ def save_paper_view(request):
             "title": (request.POST.get("title") or "Unknown")[:500],
             "first_author": request.POST.get("first_author") or None,
             "publication_year": publication_year,
-            "cited_by_count": int(request.POST.get("cited_by_count") or 0),
+            "cited_by_count": cited_by_count,
         },
     )
 
@@ -396,6 +405,7 @@ def unsave_paper_view(request):
     if openalex_id:
         SavedPaper.objects.filter(user=request.user, openalex_id=openalex_id).delete()
 
+    # Only allow redirect to our own paths, not external URLs like //evil.com
     next_param = request.GET.get("next", "").strip()
     if next_param and next_param.startswith("/") and not next_param.startswith("//"):
         return redirect(next_param)
@@ -451,8 +461,8 @@ def insights_view(request):
     )
 
 
+# Protected API endpoints return JSON 401 instead of redirecting to login
 def _api_login_required(view_func):
-    """Decorator that returns JSON 401 for unauthenticated API requests."""
     @wraps(view_func)
     def wrapper(request, *args, **kwargs):
         if not request.user.is_authenticated:
@@ -536,8 +546,8 @@ def api_insights_view(request):
     return JsonResponse(data)
 
 
+# Public endpoint - no auth needed, but we record the search if they're logged in
 def api_search_view(request):
-    """JSON search results from OpenAlex."""
     query = request.GET.get("q", "").strip()
     sort = request.GET.get("sort", "relevance").strip() or "relevance"
     from_year = request.GET.get("from_year", "").strip()
@@ -565,8 +575,8 @@ def api_search_view(request):
     return JsonResponse(data)
 
 
+# JSON detail for a single paper - maps errors to 400, 404, or 503
 def api_paper_view(request, openalex_id):
-    """JSON detail for a single paper from OpenAlex."""
     paper, related, error = _fetch_paper_detail(openalex_id)
     if error:
         error_lower = error.lower()
